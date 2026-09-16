@@ -1,0 +1,56 @@
+@import "../styles/globals.css";
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply m-0 overflow-hidden bg-sky-300 font-sans antialiased select-none;
+  }
+}
+
+/* Floating "+points" that rise out of the frog's mouth. */
+.frong-popup {
+  transform: translate(-50%, -50%);
+  animation: frong-pop 1.4s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+
+@keyframes frong-pop {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -30%) scale(0.6);
+  }
+  15% {
+    opacity: 1;
+    transform: translate(-50%, -70%) scale(1.15);
+  }
+  30% {
+    transform: translate(-50%, -80%) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -190%) scale(1);
+  }
+}
+
+@keyframes frong-wobble {
+  0%,
+  100% {
+    transform: rotate(-2deg);
+  }
+  50% {
+    transform: rotate(2deg);
+  }
+}
+
+@media (prefers-reduced-motion) {
+  .frong-popup {
+    animation-duration: 0.9s;
+  }
+  .animate-wobble {
+    animation: none !important;
+  }
+}
