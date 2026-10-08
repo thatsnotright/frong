@@ -46,3 +46,6 @@ export function flyValue(seconds: number): number {
 
 /** A fly fills the frog's belly; if it empties before the next fly, the frog starves. */
 export const BELLY_SECONDS = 40;
+
+/** Seconds the frog spends spinning around to face the other way (T). */
+export const TURN_SECONDS = 0.24;

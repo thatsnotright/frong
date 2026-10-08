@@ -85,8 +85,16 @@ interface ArmRig {
   hand: THREE.Group;
 }
 
+function easeInOut(t: number) {
+  return t * t * (3 - 2 * t);
+}
+
 export class FrogModel {
   readonly root = new THREE.Group();
+  /** Spins about the vertical axis to face the frog left or right. */
+  private pivot = new THREE.Group();
+  /** Holds the body, posed in physics space where the frog always faces +x. */
+  private rig = new THREE.Group();
   private torso = new THREE.Group();
   private jawPivot = new THREE.Group();
   private throat: THREE.Mesh;
@@ -109,7 +117,9 @@ export class FrogModel {
     const eyeMat = new THREE.MeshPhysicalMaterial({ color: PALETTE.eyeWhite, roughness: 0.35, clearcoat: 0.6, clearcoatRoughness: 0.4 });
     const pupilMat = new THREE.MeshStandardMaterial({ color: PALETTE.pupil, roughness: 0.3 });
 
-    this.root.add(this.torso);
+    this.root.add(this.pivot);
+    this.pivot.add(this.rig);
+    this.rig.add(this.torso);
     const T = this.torso;
 
     // Body: a soft felt bean behind the big head.
@@ -202,7 +212,7 @@ export class FrogModel {
       toes.position.x = 0.12;
       leg.foot.add(toes);
       this.legs.push(leg);
-      this.root.add(leg.thigh, leg.shin, leg.foot);
+      this.rig.add(leg.thigh, leg.shin, leg.foot);
 
       const arm: ArmRig = {
         arm: limbMesh(legMat, d.arm.len, 0.05, 0.042),
@@ -210,7 +220,7 @@ export class FrogModel {
         hand: paddle(legMat, 0.17, 0.026, 1.0),
       };
       this.arms.push(arm);
-      this.root.add(arm.arm, arm.forearm, arm.hand);
+      this.rig.add(arm.arm, arm.forearm, arm.hand);
     }
 
     const tongueMat = new THREE.MeshPhysicalMaterial({ color: PALETTE.tongue, roughness: 0.35, clearcoat: 1, clearcoatRoughness: 0.2 });
@@ -227,7 +237,17 @@ export class FrogModel {
   }
 
   update(frog: Frog, tongue: Tongue, look: THREE.Vector3 | null, time: number, dt: number) {
-    const tp = frog.pose("torso");
+    const tp = frog.simPose("torso");
+    // Physics space is the world mirrored when the frog faces left; a half-turn about the vertical
+    // axis is that same mirror, so animating it makes the frog spin around (facing the camera midway).
+    const axis = tp.x + frog.pivotOffset;
+    const toYaw = frog.facing > 0 ? 0 : -Math.PI;
+    const fromYaw = frog.facing > 0 ? -Math.PI : 0;
+    const k = frog.turning ? frog.turnProgress : 1;
+    this.pivot.position.set(axis * frog.facing, Math.sin(k * Math.PI) * 0.16, 0);
+    this.pivot.rotation.y = fromYaw + (toYaw - fromYaw) * easeInOut(k);
+    this.rig.position.x = -axis;
+
     this.torso.position.set(tp.x, tp.y, 0);
     this.torso.rotation.z = tp.angle;
 
@@ -237,22 +257,22 @@ export class FrogModel {
       obj.rotation.set(0, 0, p.angle);
     };
     const near = this.legs[0]!;
-    place(near.thigh, frog.pose("thigh"), HIND_Z);
-    place(near.shin, frog.pose("shin"), HIND_Z);
-    place(near.foot, frog.pose("foot"), HIND_Z);
+    place(near.thigh, frog.simPose("thigh"), HIND_Z);
+    place(near.shin, frog.simPose("shin"), HIND_Z);
+    place(near.foot, frog.simPose("foot"), HIND_Z);
     const nearArm = this.arms[0]!;
-    place(nearArm.arm, frog.pose("arm"), FRONT_Z);
-    place(nearArm.forearm, frog.pose("forearm"), FRONT_Z);
+    place(nearArm.arm, frog.simPose("arm"), FRONT_Z);
+    place(nearArm.forearm, frog.simPose("forearm"), FRONT_Z);
 
     // Far legs: same anchors, joint angles replayed slightly late.
     const ta = tp.angle;
     const rel = {
       t: time,
-      hip: frog.pose("thigh").angle - ta,
-      knee: frog.pose("shin").angle - frog.pose("thigh").angle,
-      ankle: frog.pose("foot").angle - frog.pose("shin").angle,
-      shoulder: frog.pose("arm").angle - ta,
-      elbow: frog.pose("forearm").angle - frog.pose("arm").angle,
+      hip: frog.simPose("thigh").angle - ta,
+      knee: frog.simPose("shin").angle - frog.simPose("thigh").angle,
+      ankle: frog.simPose("foot").angle - frog.simPose("shin").angle,
+      shoulder: frog.simPose("arm").angle - ta,
+      elbow: frog.simPose("forearm").angle - frog.simPose("arm").angle,
     };
     // Only record when simulated time moves, so a paused game doesn't pile up samples.
     if (time > (this.history.at(-1)?.t ?? -1)) this.history.push(rel);
@@ -287,7 +307,7 @@ export class FrogModel {
     }
 
     // Pupils follow the fly (and drift toward the camera, cartoon-style).
-    const target = look ? look.clone() : new THREE.Vector3(tp.x + Math.cos(ta) * 4, tp.y + Math.sin(ta) * 4 + 0.5, 0);
+    const target = look ? look.clone() : new THREE.Vector3((tp.x + Math.cos(ta) * 4) * frog.facing, tp.y + Math.sin(ta) * 4 + 0.5, 0);
     target.z += 2.5;
     for (const p of this.pupils) p.lookAt(target);
 
@@ -312,7 +332,7 @@ export class FrogModel {
     this.throat.visible = bulge > 0.02;
     this.throat.scale.set(0.16 * (0.6 + bulge * 0.6), 0.1 * (0.5 + bulge * 0.9), 0.17 * (0.6 + bulge * 0.6));
 
-    this.updateTongue(tp, tongue, time);
+    this.updateTongue(tp, frog.facing, tongue, time);
   }
 
   private torsoPoint(tp: { x: number; y: number; angle: number }, lx: number, ly: number) {
@@ -321,13 +341,13 @@ export class FrogModel {
     return { x: tp.x + lx * c - ly * s, y: tp.y + lx * s + ly * c };
   }
 
-  private updateTongue(tp: { x: number; y: number; angle: number }, tongue: Tongue, time: number) {
+  private updateTongue(tp: { x: number; y: number; angle: number }, facing: number, tongue: Tongue, time: number) {
     const out = tongue.state !== "idle" && tongue.length > 0.05;
     this.tongueMesh.visible = out;
     this.tongueTip.visible = out;
     if (!out) return;
     const base = this.torsoPoint(tp, 0.42, -0.06);
-    const start = new THREE.Vector3(base.x, base.y, 0);
+    const start = new THREE.Vector3(base.x * facing, base.y, 0);
     const end = new THREE.Vector3(tongue.tipX, tongue.tipY, 0);
     const mid = start.clone().lerp(end, 0.5);
     // A little sag and wiggle so it reads as wet and floppy rather than a laser.

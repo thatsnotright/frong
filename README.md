@@ -12,18 +12,20 @@ bun install
 bun dev          # http://localhost:3000 with hot reload
 ```
 
-| Key     | Muscle          | What it does                                                      |
-| ------- | --------------- | ----------------------------------------------------------------- |
-| `Q`     | Thighs forward  | Tucks the legs under and straightens the arms: the frog rears up  |
-| `W`     | Thighs back     | Shoves the legs backward                                          |
-| `O`     | Calves tuck     | Folds the shins into a crouch                                     |
-| `P`     | Calves kick     | Kicks the shins out: a hop                                        |
-| `Space` | Tongue          | Licks along the head's direction (a ring marks a fly in reach)    |
-| `Esc`   | –               | Pause                                                             |
-| `R`     | –               | Restart                                                           |
+| Key     | Muscle         | What it does                                                                      |
+| ------- | -------------- | --------------------------------------------------------------------------------- |
+| `Q`     | Thighs forward | Tucks the legs under and straightens the arms: the frog rears up                  |
+| `W`     | Thighs back    | Shoves the legs backward                                                          |
+| `O`     | Calves tuck    | Folds the shins into a crouch                                                     |
+| `P`     | Calves kick    | Kicks the shins out: a hop                                                        |
+| `Space` | Tongue         | Licks along the head's direction (a ring marks a fly in reach)                    |
+| `T`     | –              | Turn around (only with feet on the ground; a press mid-hop waits for the landing) |
+| `Esc`   | –              | Pause                                                                             |
+| `R`     | –              | Restart                                                                           |
 
-Useful combos: `P` hops forward, `W`+`P` leaps, `Q`+`P` hops backward, `Q` then lick for flies
-overhead. The on-screen keycaps can also be held with a mouse or finger.
+Useful combos: `P` hops forward, `W`+`P` leaps (about 3.4 units), `Q`+`P` hops backward, `T` then
+`W`+`P` to leap the other way, `Q` then lick for flies overhead. The on-screen keycaps can also be
+held with a mouse or finger.
 
 ## Rules
 
@@ -52,7 +54,7 @@ Add `?debug` to the URL to expose the running game as `window.frong` in the cons
 src/
   game/          headless game logic (runs under `bun test`)
     config.ts      arena, tongue, scoring and timer constants
-    frog.ts        planck ragdoll + QWOP muscle mapping and all physics tuning
+    frog.ts        planck ragdoll + QWOP muscle mapping, turning, and all physics tuning
     fly.ts         fly steering / wander / startle AI
     tongue.ts      sticky kinematic tongue with a small aim-assist cone
     game.ts        rules, scoring, events, and the React external store

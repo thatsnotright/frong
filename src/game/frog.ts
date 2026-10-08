@@ -1,5 +1,5 @@
-import { Circle, Polygon, RevoluteJoint, Vec2, type Body, type World } from "planck";
-import { DEG, TONGUE } from "./config";
+import { AABB, Circle, Polygon, RevoluteJoint, Vec2, type Body, type World } from "planck";
+import { ARENA, DEG, TONGUE, TURN_SECONDS } from "./config";
 
 export type LegKeys = { q: boolean; w: boolean; o: boolean; p: boolean };
 
@@ -111,7 +111,18 @@ function polar(len: number, angle: number) {
   return { x: Math.cos(angle) * len, y: Math.sin(angle) * len };
 }
 
+/**
+ * The ragdoll always faces +x in physics space. When the frog faces left, the world is the mirror
+ * image of physics space about x = 0, which works because the arena is symmetric about x = 0.
+ */
 export class Frog {
+  /** +1 when the frog faces right in the world, -1 when it faces left. */
+  facing: 1 | -1 = 1;
+  /** Seconds left in the current turn-around spin. */
+  turnTimer = 0;
+  /** Physics-space x offset from the torso to the vertical axis the frog spun around on its last turn. */
+  pivotOffset = 0;
+
   readonly torso: Body;
   readonly thigh: Body;
   readonly shin: Body;
@@ -119,6 +130,7 @@ export class Frog {
   readonly arm: Body;
   readonly forearm: Body;
 
+  private readonly bodies: Body[];
   private hip: Servo;
   private knee: Servo;
   private ankle: Servo;
@@ -203,6 +215,8 @@ export class Frog {
       userData: "hand",
     });
 
+    this.bodies = [this.torso, this.thigh, this.shin, this.foot, this.arm, this.forearm];
+
     this.hip = this.servo(this.torso, this.thigh, at(hipP), POSE.hip, MOTOR.hip);
     this.knee = this.servo(this.thigh, this.shin, at(kneeP), POSE.knee, MOTOR.knee);
     this.ankle = this.servo(this.shin, this.foot, at(ankleP), POSE.ankle, MOTOR.ankle);
@@ -247,7 +261,9 @@ export class Frog {
    * Releasing both keys of a pair lets that joint drift back toward the sitting pose.
    * Call once per physics step.
    */
-  control(keys: LegKeys) {
+  control(keys: LegKeys, dt: number) {
+    this.turnTimer = Math.max(0, this.turnTimer - dt);
+
     if (keys.q || keys.w) {
       const hipTarget = keys.q && !keys.w ? POSE.hip.flex : keys.w && !keys.q ? POSE.hip.extend : POSE.hip.rest;
       this.drive(this.hip, hipTarget, true);
@@ -281,14 +297,77 @@ export class Frog {
     }
   }
 
+  /** Nose-up tilt of the torso in radians, the same whichever way the frog faces. */
   get angle() {
     return this.torso.getAngle();
+  }
+
+  get turning() {
+    return this.turnTimer > 0;
+  }
+
+  /** 0 at the start of a turn, 1 once the frog is facing its new way. */
+  get turnProgress() {
+    return 1 - this.turnTimer / TURN_SECONDS;
   }
 
   /** World position of the mouth and the direction the head is pointing. */
   mouth() {
     const p = this.torso.getWorldPoint(new Vec2(FROG_DIMS.mouth.x, FROG_DIMS.mouth.y));
-    return { x: p.x, y: p.y, angle: this.torso.getAngle() + TONGUE.mouthTilt };
+    const a = this.torso.getAngle() + TONGUE.mouthTilt;
+    return this.facing > 0 ? { x: p.x, y: p.y, angle: a } : { x: -p.x, y: p.y, angle: Math.PI - a };
+  }
+
+  /** A frog can only turn around sitting up on something solid. */
+  canTurn() {
+    return !this.turning && this.isGrounded() && Math.cos(this.torso.getAngle()) > 0.5;
+  }
+
+  /**
+   * Spins the frog around on the spot to face the other way. Physics keeps facing +x, so this mirrors
+   * the world instead: the ragdoll slides to its mirror-image spot, pose untouched, and keeps its
+   * drift in world terms. Returns false if the frog can't turn right now.
+   */
+  turn() {
+    if (!this.canTurn()) return false;
+    // Pivot on the middle of the frog's footprint so it stays on whatever it's standing on.
+    const [lo, hi] = this.extentX();
+    const mid = (lo + hi) / 2;
+    let dx = -2 * mid;
+    // Never end up poking through a wall.
+    dx += Math.max(0, ARENA.left + 0.02 - (lo + dx)) - Math.max(0, hi + dx - (ARENA.right - 0.02));
+    let mass = 0;
+    let momentum = 0;
+    for (const b of this.bodies) {
+      mass += b.getMass();
+      momentum += b.getMass() * b.getLinearVelocity().x;
+    }
+    const dvx = (-2 * momentum) / mass;
+    for (const b of this.bodies) {
+      const p = b.getPosition();
+      b.setPosition(new Vec2(p.x + dx, p.y));
+      const v = b.getLinearVelocity();
+      b.setLinearVelocity(new Vec2(v.x + dvx, v.y));
+    }
+    this.pivotOffset = mid - (this.torso.getPosition().x - dx);
+    this.facing = this.facing > 0 ? -1 : 1;
+    this.turnTimer = TURN_SECONDS;
+    return true;
+  }
+
+  /** Leftmost and rightmost physics-space x of the whole ragdoll. */
+  private extentX(): [number, number] {
+    const box = new AABB();
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const b of this.bodies) {
+      for (let f = b.getFixtureList(); f; f = f.getNext()) {
+        f.getShape().computeAABB(box, b.getTransform(), 0);
+        lo = Math.min(lo, box.lowerBound.x);
+        hi = Math.max(hi, box.upperBound.x);
+      }
+    }
+    return [lo, hi];
   }
 
   /** True when the frog is upside down and resting on something. */
@@ -305,7 +384,14 @@ export class Frog {
     return false;
   }
 
+  /** World-space pose of a part (mirrored when the frog faces left). */
   pose(part: FrogPartName): PartPose {
+    const p = this.simPose(part);
+    return this.facing > 0 ? p : { x: -p.x, y: p.y, angle: Math.PI - p.angle };
+  }
+
+  /** Physics-space pose of a part, where the frog always faces +x. */
+  simPose(part: FrogPartName): PartPose {
     const b = this[part];
     const p = b.getPosition();
     return { x: p.x, y: p.y, angle: b.getAngle() };

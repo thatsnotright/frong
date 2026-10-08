@@ -58,12 +58,20 @@ export function KeyPad({ keys, onKey }: { keys: Keys; onKey: (key: keyof Keys, d
           <KeyButton key={c.key} name={c.key} cap={c.cap} label={c.label} pressed={keys[c.key]} onKey={onKey} className="sm:w-20 pointer-coarse:py-3" />
         ))}
         <KeyButton
+          name="t"
+          cap="T"
+          label="Turn"
+          pressed={keys.t}
+          onKey={onKey}
+          className="order-last border-sky-200/80 sm:order-none sm:ml-1 sm:w-20 pointer-coarse:py-3 [&[aria-pressed=true]]:border-sky-500 [&[aria-pressed=true]]:bg-sky-500"
+        />
+        <KeyButton
           name="space"
           cap="Space"
           label="Lick"
           pressed={keys.space}
           onKey={onKey}
-          className="order-last col-span-4 border-pink-200/80 sm:order-none sm:mx-1 sm:w-36 pointer-coarse:py-3 [&[aria-pressed=true]]:border-pink-500 [&[aria-pressed=true]]:bg-pink-500"
+          className="order-last col-span-3 border-pink-200/80 sm:order-none sm:mx-1 sm:w-36 pointer-coarse:py-3 [&[aria-pressed=true]]:border-pink-500 [&[aria-pressed=true]]:bg-pink-500"
         />
         {LEG_CONTROLS.slice(2).map((c) => (
           <KeyButton key={c.key} name={c.key} cap={c.cap} label={c.label} pressed={keys[c.key]} onKey={onKey} className="sm:w-20 pointer-coarse:py-3" />
@@ -89,6 +97,12 @@ export function ControlsLegend() {
         <Kbd className="h-7 bg-pink-100 px-3 font-display text-base text-pink-700">Space</Kbd>
         <span>
           <span className="font-semibold">Lick</span> <span className="text-muted-foreground">· the tongue shoots where the head points</span>
+        </span>
+      </div>
+      <div className="col-span-2 flex items-center gap-2">
+        <Kbd className="h-7 min-w-7 bg-sky-100 font-display text-base text-sky-700">T</Kbd>
+        <span>
+          <span className="font-semibold">Turn around</span> <span className="text-muted-foreground">· needs feet on the ground</span>
         </span>
       </div>
     </div>

@@ -54,6 +54,49 @@ describe("frog", () => {
   });
 });
 
+describe("turning", () => {
+  test("T spins the frog around on the spot, and P then hops the other way", () => {
+    const game = new Game(seeded(8));
+    game.start();
+    run(game, 1);
+    const before = game.frog.pose("torso");
+    game.setKey("t", true);
+    run(game, 0.6);
+    game.setKey("t", false);
+    const after = game.frog.pose("torso");
+    expect(game.frog.facing).toBe(-1);
+    expect(Math.abs(after.x - before.x)).toBeLessThan(0.3);
+    expect(game.frog.mouth().x).toBeLessThan(after.x);
+
+    game.setKey("p", true);
+    run(game, 0.5);
+    game.setKey("p", false);
+    run(game, 2);
+    expect(game.frog.pose("torso").x).toBeLessThan(after.x - 0.2);
+    expect(Math.cos(game.frog.angle)).toBeGreaterThan(0.5);
+  });
+
+  test("a turn pressed mid-hop waits for the landing", () => {
+    const game = new Game(seeded(9));
+    game.start();
+    run(game, 1);
+    game.setKey("w", true);
+    game.setKey("p", true);
+    run(game, 0.15);
+    game.releaseAll();
+    run(game, 0.05);
+    expect(game.frog.isGrounded()).toBe(false);
+    game.setKey("t", true);
+    game.setKey("t", false);
+    expect(game.frog.facing).toBe(1);
+    run(game, 2);
+    expect(game.frog.facing).toBe(1);
+    game.setKey("t", true);
+    run(game, 0.1);
+    expect(game.frog.facing).toBe(-1);
+  });
+});
+
 describe("tongue", () => {
   test("catches a fly in its sights and scores it", () => {
     const game = new Game(seeded(4));

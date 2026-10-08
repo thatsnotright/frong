@@ -16,9 +16,10 @@ export type GameEvent =
   | { type: "spawn" }
   | { type: "hop"; strength: number }
   | { type: "land"; impact: number }
+  | { type: "turn" }
   | { type: "over"; reason: OverReason };
 
-export type Keys = LegKeys & { space: boolean };
+export type Keys = LegKeys & { space: boolean; t: boolean };
 
 export interface Snapshot {
   phase: Phase;
@@ -37,8 +38,10 @@ export interface Snapshot {
   keys: Keys;
 }
 
-const NO_KEYS: Keys = { q: false, w: false, o: false, p: false, space: false };
+const NO_KEYS: Keys = { q: false, w: false, o: false, p: false, space: false, t: false };
 const SNAPSHOT_INTERVAL = 1 / 15;
+/** A turn pressed mid-hop (or with the tongue out) still happens if the frog can turn this soon after. */
+const TURN_BUFFER = 0.3;
 
 export class Game {
   world!: World;
@@ -59,6 +62,7 @@ export class Game {
   time = 0;
 
   private acc = 0;
+  private turnQueued = 0;
   private airTime = 0;
   private wasAirborne = false;
   private peakFallSpeed = 0;
@@ -87,6 +91,7 @@ export class Game {
     this.overReason = null;
     this.newBest = false;
     this.acc = 0;
+    this.turnQueued = 0;
     this.airTime = 0;
     this.wasAirborne = false;
     this.spawnFly();
@@ -119,6 +124,7 @@ export class Game {
     if (this.keys[key] === down) return;
     this.keys = { ...this.keys, [key]: down };
     if (key === "space" && down) this.lick();
+    if (key === "t" && down && this.phase === "playing") this.turnQueued = TURN_BUFFER;
     this.publish();
   }
 
@@ -129,7 +135,7 @@ export class Game {
 
   /** Space: flick the tongue toward wherever the head is pointing. */
   private lick() {
-    if (this.phase !== "playing") return;
+    if (this.phase !== "playing" || this.frog.turning) return;
     if (this.tongue.fire(this.frog.mouth(), this.fly)) {
       this.emit({ type: "tongue", locked: this.tongue.locked });
     }
@@ -149,7 +155,15 @@ export class Game {
   private step(dt: number) {
     this.time += dt;
     const playing = this.phase === "playing";
-    this.frog.control(playing ? this.keys : NO_KEYS);
+    if (this.turnQueued > 0) {
+      if (playing && this.tongue.state === "idle" && this.frog.turn()) {
+        this.turnQueued = 0;
+        this.emit({ type: "turn" });
+      } else {
+        this.turnQueued = Math.max(0, this.turnQueued - dt);
+      }
+    }
+    this.frog.control(playing ? this.keys : NO_KEYS, dt);
     stepWorld(this.world);
 
     const mouth = this.frog.mouth();

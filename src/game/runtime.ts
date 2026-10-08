@@ -21,7 +21,8 @@ function write(key: string, value: string) {
   }
 }
 
-const LEG_KEYS: Record<string, keyof Keys> = { KeyQ: "q", KeyW: "w", KeyO: "o", KeyP: "p" };
+/** Keys that are held during play (legs, and T to turn around). */
+const PLAY_KEYS: Record<string, keyof Keys> = { KeyQ: "q", KeyW: "w", KeyO: "o", KeyP: "p", KeyT: "t" };
 
 export interface Frong {
   game: Game;
@@ -51,10 +52,10 @@ export function startFrong(container: HTMLElement): Frong {
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     sfx.unlock();
-    const leg = LEG_KEYS[e.code];
-    if (leg) {
+    const held = PLAY_KEYS[e.code];
+    if (held) {
       e.preventDefault();
-      if (game.phase === "playing") game.setKey(leg, true);
+      if (game.phase === "playing") game.setKey(held, true);
       return;
     }
     switch (e.code) {
@@ -80,8 +81,8 @@ export function startFrong(container: HTMLElement): Frong {
   };
 
   const onKeyUp = (e: KeyboardEvent) => {
-    const leg = LEG_KEYS[e.code];
-    if (leg) game.setKey(leg, false);
+    const held = PLAY_KEYS[e.code];
+    if (held) game.setKey(held, false);
     if (e.code === "Space") {
       e.preventDefault();
       game.setKey("space", false);

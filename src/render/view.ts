@@ -172,7 +172,7 @@ export class GameView {
         break;
       case "land": {
         const f = g.frog.pose("foot");
-        this.burst(f.x + 0.2, 0.05, Math.round(6 + e.impact * 14), ["#cdb48a", "#b89c6e", "#e8dcc0"], 1.6 + e.impact * 2, 0.6, 0.22, 2);
+        this.burst(f.x + 0.2 * g.frog.facing, 0.05, Math.round(6 + e.impact * 14), ["#cdb48a", "#b89c6e", "#e8dcc0"], 1.6 + e.impact * 2, 0.6, 0.22, 2);
         this.shake = Math.max(this.shake, e.impact * 0.12);
         break;
       }
@@ -227,14 +227,14 @@ export class GameView {
 
     const fly = g.fly;
     const mouth = g.frog.mouth();
-    const inSights = g.phase === "playing" && g.tongue.state === "idle" && Tongue.inSights(mouth, fly);
+    const ready = g.phase === "playing" && g.tongue.state === "idle" && !g.frog.turning;
+    const inSights = ready && Tongue.inSights(mouth, fly);
     this.frog.update(g.frog, g.tongue, fly ? new THREE.Vector3(fly.x, fly.y, 0) : null, t, dt);
     this.fly.update(fly, inSights, t, dt);
 
     // Dashed sight line showing where a lick would go.
-    const showAim = g.phase === "playing" && g.tongue.state === "idle";
-    this.aimLine.visible = showAim;
-    if (showAim) {
+    this.aimLine.visible = ready;
+    if (ready) {
       const pos = this.aimLine.geometry.attributes.position as THREE.BufferAttribute;
       const ex = mouth.x + Math.cos(mouth.angle) * TONGUE.reach;
       const ey = mouth.y + Math.sin(mouth.angle) * TONGUE.reach;

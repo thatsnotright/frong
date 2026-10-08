@@ -161,6 +161,11 @@ export class Sfx {
         this.tone("sine", 140, 45, 0.12, 0.25 + e.impact * 0.4);
         this.hiss(0.07, 0.12 + e.impact * 0.2, "lowpass", 600, 200);
         break;
+      case "turn":
+        // A quick felt swish as the frog spins around.
+        this.hiss(0.16, 0.16, "bandpass", 500, 1600, 1.2);
+        this.tone("triangle", 300, 420, 0.1, 0.06, 0.04);
+        break;
       case "start":
         this.croak(1.15);
         break;
