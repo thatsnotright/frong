@@ -1,9 +1,11 @@
 import { GameView } from "../render/view";
 import { Sfx } from "./audio";
 import { Game, type Keys } from "./game";
+import { MODES, type Mode } from "./levels";
 
 const BEST_KEY = "frong.best";
 const MUTED_KEY = "frong.muted";
+const MODE_KEY = "frong.mode";
 
 function read(key: string) {
   try {
@@ -23,22 +25,30 @@ function write(key: string, value: string) {
 
 /** Keys that are held during play (legs, and T to turn around). */
 const PLAY_KEYS: Record<string, keyof Keys> = { KeyQ: "q", KeyW: "w", KeyO: "o", KeyP: "p", KeyT: "t" };
+const MODE_DIGITS: Record<string, Mode> = { Digit1: "easy", Digit2: "medium", Digit3: "hard" };
 
 export interface Frong {
   game: Game;
   sfx: Sfx;
   /** Starts (or restarts) a run. */
   play(): void;
+  /** Picks the level for the next run (only between runs). */
+  setMode(mode: Mode): void;
   setMuted(muted: boolean): void;
   dispose(): void;
 }
 
 /** Wires the game, renderer, audio and keyboard together and runs the frame loop. */
 export function startFrong(container: HTMLElement): Frong {
-  const game = new Game(Math.random, {
-    getBest: () => Number(read(BEST_KEY)) || 0,
-    setBest: (n) => write(BEST_KEY, String(n)),
-  });
+  const savedMode = read(MODE_KEY) as Mode | null;
+  const game = new Game(
+    Math.random,
+    {
+      getBest: (mode) => Number(read(`${BEST_KEY}.${mode}`)) || 0,
+      setBest: (mode, n) => write(`${BEST_KEY}.${mode}`, String(n)),
+    },
+    savedMode && MODES.includes(savedMode) ? savedMode : "easy",
+  );
   const view = new GameView(container, game);
   const sfx = new Sfx(read(MUTED_KEY) === "1");
   const unsubSfx = game.onEvent((e) => sfx.handle(e));
@@ -49,6 +59,11 @@ export function startFrong(container: HTMLElement): Frong {
     game.start();
   };
 
+  const setMode = (mode: Mode) => {
+    game.setMode(mode);
+    write(MODE_KEY, mode);
+  };
+
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     sfx.unlock();
@@ -56,6 +71,11 @@ export function startFrong(container: HTMLElement): Frong {
     if (held) {
       e.preventDefault();
       if (game.phase === "playing") game.setKey(held, true);
+      return;
+    }
+    const mode = MODE_DIGITS[e.code];
+    if (mode) {
+      if (game.phase === "title" || game.phase === "over") setMode(mode);
       return;
     }
     switch (e.code) {
@@ -121,6 +141,7 @@ export function startFrong(container: HTMLElement): Frong {
     game,
     sfx,
     play,
+    setMode,
     setMuted(muted) {
       sfx.setMuted(muted);
       write(MUTED_KEY, muted ? "1" : "0");

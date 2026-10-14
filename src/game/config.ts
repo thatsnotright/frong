@@ -49,3 +49,11 @@ export const BELLY_SECONDS = 40;
 
 /** Seconds the frog spends spinning around to face the other way (T). */
 export const TURN_SECONDS = 0.24;
+
+/** Ponds (Medium and Hard): the water surface is level with the ground and this deep. */
+export const POND = {
+  depth: 0.9,
+  /** Fraction of gravity that water cancels on a sinking frog, and how fast it drags it to a stop. */
+  buoyancy: 0.85,
+  drag: 3,
+};

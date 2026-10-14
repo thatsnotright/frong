@@ -1,6 +1,7 @@
 import * as THREE from "three";
-import { ARENA } from "../game/config";
-import { bankTexture, meadowTexture, soilTexture, softDotTexture } from "./materials";
+import { ARENA, POND } from "../game/config";
+import type { Level, Span } from "../game/levels";
+import { bankTexture, lilyPadTexture, meadowTexture, soilTexture, softDotTexture } from "./materials";
 
 export const SKY_TOP = new THREE.Color("#4aa3e8");
 export const SKY_HORIZON = new THREE.Color("#d9f1ff");
@@ -9,6 +10,14 @@ export const SUN_DIR = new THREE.Vector3(-0.4, 0.88, 0.26).normalize();
 
 /** Front edge of the meadow; below it is the diorama soil cut-away. */
 const FRONT_Z = 2.9;
+/** Ponds in the playfield run from the front cut-away back to here. */
+const POND_BACK = -1.25;
+/** Drawn water surface, just under the banks and pad tops so they read as above it. */
+const WATER_Y = -0.035;
+/** Texture tile sizes in world units, so pieces cut around a pond still line up. */
+const MEADOW_TILE = 13.5;
+const SOIL_TILE = 6.7;
+const BANK_TILE = 6.4;
 
 function rand(a: number, b: number) {
   return a + Math.random() * (b - a);
@@ -48,7 +57,12 @@ function skyDome() {
 }
 
 /** Instanced grass with a wind sway done in the vertex shader. */
-function grassField(count: number, area: { x: [number, number]; z: [number, number] }, height: [number, number]) {
+function grassField(
+  count: number,
+  area: { x: [number, number]; z: [number, number] },
+  height: [number, number],
+  avoid: (x: number, z: number) => boolean = () => false,
+) {
   const blade = new THREE.PlaneGeometry(0.06, 1, 1, 4);
   blade.translate(0, 0.5, 0);
   const pos = blade.attributes.position as THREE.BufferAttribute;
@@ -82,9 +96,11 @@ function grassField(count: number, area: { x: [number, number]; z: [number, numb
   const p = new THREE.Vector3();
   const c = new THREE.Color();
   for (let i = 0; i < count; i++) {
-    p.set(rand(area.x[0], area.x[1]), 0, rand(area.z[0], area.z[1]));
+    let tries = 0;
+    do p.set(rand(area.x[0], area.x[1]), 0, rand(area.z[0], area.z[1]));
+    while (avoid(p.x, p.z) && ++tries < 12);
     q.setFromEuler(new THREE.Euler(rand(-0.15, 0.15), rand(0, Math.PI), rand(-0.2, 0.2)));
-    const h = rand(height[0], height[1]);
+    const h = tries < 12 ? rand(height[0], height[1]) : 0;
     s.set(rand(0.8, 1.6), h, 1);
     m.compose(p, q, s);
     mesh.setMatrixAt(i, m);
@@ -190,33 +206,96 @@ function daisy() {
   return g;
 }
 
+/**
+ * Box (or plane, when one size is 0) spanning the given world ranges, with UVs taken from world
+ * coordinates so neighbouring pieces tile seamlessly.
+ */
+function worldBox(x: Span, y: [number, number], z: [number, number], tile: number) {
+  const w = x.x1 - x.x0;
+  const h = y[1] - y[0];
+  const d = z[1] - z[0];
+  const geo = h === 0 ? new THREE.PlaneGeometry(w, d).rotateX(-Math.PI / 2) : d === 0 ? new THREE.PlaneGeometry(w, h) : new THREE.BoxGeometry(w, h, d);
+  geo.translate((x.x0 + x.x1) / 2, (y[0] + y[1]) / 2, (z[0] + z[1]) / 2);
+  const pos = geo.attributes.position as THREE.BufferAttribute;
+  const nrm = geo.attributes.normal as THREE.BufferAttribute;
+  const uv = geo.attributes.uv as THREE.BufferAttribute;
+  for (let i = 0; i < pos.count; i++) {
+    const [px, py, pz] = [pos.getX(i), pos.getY(i), pos.getZ(i)];
+    const [ax, ay] = [Math.abs(nrm.getX(i)), Math.abs(nrm.getY(i))];
+    if (ay > 0.5) uv.setXY(i, px / tile, -pz / tile);
+    else if (ax > 0.5) uv.setXY(i, pz / tile, py / tile);
+    else uv.setXY(i, px / tile, py / tile);
+  }
+  return geo;
+}
+
+/** The parts of [from, to] not covered by `holes` (sorted, non-overlapping). */
+function complement(from: number, to: number, holes: Span[]): Span[] {
+  const out: Span[] = [];
+  let x = from;
+  for (const h of holes) {
+    if (h.x0 > x) out.push({ x0: x, x1: h.x0 });
+    x = Math.max(x, h.x1);
+  }
+  if (x < to) out.push({ x0: x, x1: to });
+  return out;
+}
+
+/** A big floating lily pad the frog can stand on, notch facing away from the camera. */
+function bigLilyPad(r: number, mat: THREE.Material) {
+  const notch = 0.32;
+  const geo = new THREE.CylinderGeometry(r, r * 0.97, 0.05, 48, 1, false, Math.PI + notch, Math.PI * 2 - notch * 2);
+  const pad = new THREE.Mesh(geo, mat);
+  pad.receiveShadow = true;
+  pad.castShadow = true;
+  return pad;
+}
+
 export class Environment {
   readonly root = new THREE.Group();
   private grass: { uniforms: { uTime: { value: number } } }[] = [];
+  /** Everything that depends on the level: banks, ponds, pads. Rebuilt by setLevel. */
+  private levelRoot = new THREE.Group();
+  private levelGrass: { uniforms: { uTime: { value: number } } }[] = [];
+  private levelReeds: { obj: THREE.Object3D; phase: number }[] = [];
+  private shared = new Set<THREE.Material>();
+  private mats: {
+    meadow: THREE.MeshStandardMaterial;
+    soil: THREE.MeshStandardMaterial;
+    lip: THREE.MeshStandardMaterial;
+    bank: THREE.MeshStandardMaterial;
+    pondFloor: THREE.MeshStandardMaterial;
+    water: THREE.MeshPhysicalMaterial;
+    waterSide: THREE.MeshPhysicalMaterial;
+    pad: THREE.MeshStandardMaterial;
+  };
   private reeds: { obj: THREE.Object3D; phase: number }[] = [];
   private clouds: { obj: THREE.Object3D; speed: number }[] = [];
   private water: THREE.Mesh;
 
   constructor() {
     this.root.add(skyDome());
+    this.root.add(this.levelRoot);
 
-    // Meadow plane and the soil cut-away below the playfield.
-    const meadowTex = meadowTexture();
-    meadowTex.repeat.set(30, 16);
-    const meadow = new THREE.Mesh(new THREE.PlaneGeometry(400, 220), new THREE.MeshStandardMaterial({ map: meadowTex, roughness: 1 }));
-    meadow.rotation.x = -Math.PI / 2;
-    meadow.position.z = FRONT_Z - 110;
+    const bankTex = bankTexture();
+    bankTex.wrapT = THREE.ClampToEdgeWrapping;
+    this.mats = {
+      meadow: new THREE.MeshStandardMaterial({ map: meadowTexture(), roughness: 1 }),
+      soil: new THREE.MeshStandardMaterial({ map: soilTexture(), roughness: 1 }),
+      lip: new THREE.MeshStandardMaterial({ color: "#4c8a2a", roughness: 1 }),
+      // The frog lives on a sandy strip of pond bank, so green felt pops against it.
+      bank: new THREE.MeshStandardMaterial({ map: bankTex, transparent: true, roughness: 1, depthWrite: false }),
+      pondFloor: new THREE.MeshStandardMaterial({ color: "#7d6a45", roughness: 1 }),
+      water: new THREE.MeshPhysicalMaterial({ color: "#3f8fc0", roughness: 0.08, metalness: 0.1, clearcoat: 1, transparent: true, opacity: 0.72 }),
+      waterSide: new THREE.MeshPhysicalMaterial({ color: "#2f86bd", roughness: 0.1, clearcoat: 1, transparent: true, opacity: 0.55, depthWrite: false }),
+      pad: new THREE.MeshStandardMaterial({ map: lilyPadTexture(), roughness: 0.55 }),
+    };
+    for (const m of Object.values(this.mats)) this.shared.add(m);
+
+    // Meadow behind the playfield; the strip in front of it is cut around ponds in setLevel.
+    const meadow = new THREE.Mesh(worldBox({ x0: -200, x1: 200 }, [0, 0], [-217, POND_BACK], MEADOW_TILE), this.mats.meadow);
     meadow.receiveShadow = true;
     this.root.add(meadow);
-
-    const soilTex = soilTexture();
-    soilTex.repeat.set(24, 4);
-    const soil = new THREE.Mesh(new THREE.BoxGeometry(160, 30, 1), new THREE.MeshStandardMaterial({ map: soilTex, roughness: 1 }));
-    soil.position.set(0, -15.002, FRONT_Z - 0.5);
-    this.root.add(soil);
-    const lip = new THREE.Mesh(new THREE.BoxGeometry(160, 0.22, 0.3), new THREE.MeshStandardMaterial({ color: "#4c8a2a", roughness: 1 }));
-    lip.position.set(0, -0.1, FRONT_Z - 0.05);
-    this.root.add(lip);
 
     // Pond behind the playfield, with lily pads and a lotus.
     const shore = new THREE.Mesh(new THREE.CircleGeometry(1, 48), new THREE.MeshStandardMaterial({ color: "#8a7350", roughness: 1 }));
@@ -249,29 +328,10 @@ export class Environment {
     flower.position.set(1.5, 0.02, -9.2);
     this.root.add(flower);
 
-    // The frog lives on a sandy strip of pond bank, so green felt pops against it.
-    const bankTex = bankTexture();
-    bankTex.repeat.set(14, 1);
-    const bank = new THREE.Mesh(
-      new THREE.PlaneGeometry(90, 2.9),
-      new THREE.MeshStandardMaterial({ map: bankTex, transparent: true, roughness: 1, depthWrite: false }),
-    );
-    bank.rotation.x = -Math.PI / 2;
-    bank.position.set(0, 0.004, 0);
-    bank.receiveShadow = true;
-    this.root.add(bank);
-
-    // Grass: short in front so it never hides the frog's feet, taller behind, tufts along the bank.
-    for (const g of [
-      grassField(2000, { x: [-26, 26], z: [1.3, FRONT_Z - 0.05] }, [0.07, 0.2]),
-      grassField(5200, { x: [-34, 34], z: [-7, -1.3] }, [0.2, 0.55]),
-      grassField(700, { x: [-26, 26], z: [1.0, 1.45] }, [0.06, 0.16]),
-      grassField(900, { x: [-26, 26], z: [-1.5, -1.0] }, [0.12, 0.35]),
-      grassField(1500, { x: [-28, 28], z: [FRONT_Z - 0.15, FRONT_Z + 0.05] }, [0.22, 0.42]),
-    ]) {
-      this.root.add(g.mesh);
-      this.grass.push(g);
-    }
+    // Tall grass behind the playfield (the short grass in front is laid out per level).
+    const backGrass = grassField(5200, { x: [-34, 34], z: [-7, -1.3] }, [0.2, 0.55]);
+    this.root.add(backGrass.mesh);
+    this.grass.push(backGrass);
 
     for (let i = 0; i < 70; i++) {
       const d = daisy();
@@ -331,13 +391,96 @@ export class Environment {
     this.root.add(glow);
   }
 
+  /** Lays out the playfield for a level: sandy banks over soil, or open pond with a see-through front. */
+  setLevel(level: Level) {
+    this.levelRoot.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      mesh.geometry?.dispose();
+      const mats = Array.isArray(mesh.material) ? mesh.material : mesh.material ? [mesh.material] : [];
+      for (const m of mats) if (!this.shared.has(m)) m.dispose();
+    });
+    this.levelRoot.clear();
+    this.levelGrass = [];
+    this.levelReeds = [];
+    const add = (geo: THREE.BufferGeometry, mat: THREE.Material, shadows = true) => {
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.receiveShadow = shadows;
+      this.levelRoot.add(mesh);
+      return mesh;
+    };
+
+    // Lily pads float, so everything between the banks is pond. Ponds that reach a wall carry on a
+    // little past it, so the arena edge isn't a hard line.
+    const banks = level.land.filter((l) => l.kind === "bank");
+    const ponds = complement(ARENA.left, ARENA.right, banks).map((w) => ({
+      x0: w.x0 <= ARENA.left ? ARENA.left - 0.6 : w.x0,
+      x1: w.x1 >= ARENA.right ? ARENA.right + 0.6 : w.x1,
+    }));
+    const wet = (x: number, z: number) => z > POND_BACK - 0.08 && ponds.some((p) => x > p.x0 - 0.06 && x < p.x1 + 0.06);
+    const dry = complement(-200, 200, ponds);
+    const lane: [number, number] = [POND_BACK, FRONT_Z];
+
+    for (const d of dry) {
+      add(worldBox(d, [0, 0], lane, MEADOW_TILE), this.mats.meadow);
+      const near = { x0: Math.max(d.x0, -80), x1: Math.min(d.x1, 80) };
+      add(worldBox(near, [-30, -0.002], lane, SOIL_TILE), this.mats.soil, false);
+      add(worldBox(near, [-0.21, 0.01], [FRONT_Z - 0.2, FRONT_Z + 0.1], 1), this.mats.lip, false);
+      // Sandy bank strip: u tiles along x, v runs across the lane so its edges feather into the grass.
+      const bankSpan = { x0: Math.max(d.x0, -45), x1: Math.min(d.x1, 45) };
+      if (bankSpan.x1 > bankSpan.x0) {
+        const geo = worldBox(bankSpan, [0.004, 0.004], [-1.45, 1.45], BANK_TILE);
+        const pos = geo.attributes.position as THREE.BufferAttribute;
+        const uv = geo.attributes.uv as THREE.BufferAttribute;
+        for (let i = 0; i < pos.count; i++) uv.setY(i, (pos.getZ(i) + 1.45) / 2.9);
+        add(geo, this.mats.bank);
+      }
+    }
+
+    for (const p of ponds) {
+      add(worldBox(p, [-30, -POND.depth - 0.002], lane, SOIL_TILE), this.mats.soil, false);
+      add(worldBox(p, [-POND.depth, -POND.depth], lane, 1), this.mats.pondFloor);
+      add(worldBox(p, [-POND.depth, 0], [POND_BACK, POND_BACK], SOIL_TILE), this.mats.soil);
+      add(worldBox(p, [WATER_Y, WATER_Y], lane, 1), this.mats.water);
+      // The diorama's front is glass here: you can watch a frog sink.
+      add(worldBox(p, [-POND.depth, WATER_Y], [FRONT_Z + 0.002, FRONT_Z + 0.002], 1), this.mats.waterSide, false);
+      for (const x of [p.x0, p.x1]) {
+        if (Math.abs(x) > ARENA.right) continue;
+        for (let i = 0; i < 2; i++) {
+          const c = cattail(rand(1.4, 2.2));
+          c.position.set(x + (x === p.x0 ? 1 : -1) * rand(0.05, 0.3), 0, POND_BACK + rand(0.05, 0.35));
+          this.levelRoot.add(c);
+          this.levelReeds.push({ obj: c, phase: Math.random() * 10 });
+        }
+      }
+    }
+
+    for (const l of level.land) {
+      if (l.kind !== "pad") continue;
+      const pad = bigLilyPad((l.x1 - l.x0) / 2, this.mats.pad);
+      pad.position.set((l.x0 + l.x1) / 2, -0.015, 0);
+      this.levelRoot.add(pad);
+    }
+
+    // Grass: short in front so it never hides the frog's feet, tufts along the bank, a fringe at the edge.
+    for (const g of [
+      grassField(2000, { x: [-26, 26], z: [1.3, FRONT_Z - 0.05] }, [0.07, 0.2], wet),
+      grassField(700, { x: [-26, 26], z: [1.0, 1.45] }, [0.06, 0.16], wet),
+      grassField(900, { x: [-26, 26], z: [-1.5, -1.0] }, [0.12, 0.35], wet),
+      grassField(1500, { x: [-28, 28], z: [FRONT_Z - 0.15, FRONT_Z + 0.05] }, [0.22, 0.42], wet),
+    ]) {
+      this.levelRoot.add(g.mesh);
+      this.levelGrass.push(g);
+    }
+  }
+
   update(time: number, dt: number) {
-    for (const g of this.grass) g.uniforms.uTime.value = time;
-    for (const r of this.reeds) r.obj.rotation.z = Math.sin(time * 1.1 + r.phase) * 0.04 + Math.sin(time * 0.43 + r.phase) * 0.03;
+    for (const g of [...this.grass, ...this.levelGrass]) g.uniforms.uTime.value = time;
+    for (const r of [...this.reeds, ...this.levelReeds]) r.obj.rotation.z = Math.sin(time * 1.1 + r.phase) * 0.04 + Math.sin(time * 0.43 + r.phase) * 0.03;
     for (const c of this.clouds) {
       c.obj.position.x += c.speed * dt;
       if (c.obj.position.x > 110) c.obj.position.x = -110;
     }
     (this.water.material as THREE.MeshPhysicalMaterial).clearcoatRoughness = 0.15 + Math.sin(time * 0.8) * 0.05;
+    this.mats.water.clearcoatRoughness = 0.12 + Math.sin(time * 1.1) * 0.05;
   }
 }

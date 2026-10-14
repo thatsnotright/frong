@@ -2,11 +2,12 @@ import type { World } from "planck";
 import { BELLY_SECONDS, BELLY_UP_GRACE, PHYS_DT, flyValue } from "./config";
 import { Fly, type Rng } from "./fly";
 import { Frog, type LegKeys } from "./frog";
+import { LEVELS, type Level, type Mode } from "./levels";
 import { createWorld, stepWorld } from "./physics";
 import { Tongue } from "./tongue";
 
 export type Phase = "title" | "playing" | "paused" | "over";
-export type OverReason = "belly" | "starved";
+export type OverReason = "belly" | "starved" | "splash";
 
 export type GameEvent =
   | { type: "start" }
@@ -17,12 +18,19 @@ export type GameEvent =
   | { type: "hop"; strength: number }
   | { type: "land"; impact: number }
   | { type: "turn" }
+  | { type: "splash"; x: number }
   | { type: "over"; reason: OverReason };
 
 export type Keys = LegKeys & { space: boolean; t: boolean };
 
+export interface BestStore {
+  getBest(mode: Mode): number;
+  setBest(mode: Mode, score: number): void;
+}
+
 export interface Snapshot {
   phase: Phase;
+  mode: Mode;
   score: number;
   flies: number;
   flyAge: number;
@@ -49,6 +57,8 @@ export class Game {
   fly: Fly | null = null;
   tongue = new Tongue();
   phase: Phase = "title";
+  mode: Mode;
+  level: Level;
   keys: Keys = { ...NO_KEYS };
 
   score = 0;
@@ -73,16 +83,19 @@ export class Game {
 
   constructor(
     private rng: Rng = Math.random,
-    private storage: { getBest(): number; setBest(n: number): void } = { getBest: () => 0, setBest: () => {} },
+    private storage: BestStore = { getBest: () => 0, setBest: () => {} },
+    mode: Mode = "easy",
   ) {
-    this.best = storage.getBest();
+    this.mode = mode;
+    this.level = LEVELS[mode];
+    this.best = storage.getBest(mode);
     this.reset();
     this.publish();
   }
 
   private reset() {
-    this.world = createWorld();
-    this.frog = new Frog(this.world, -3.5);
+    this.world = createWorld(this.level);
+    this.frog = new Frog(this.world, this.level.frogX);
     this.tongue = new Tongue();
     this.score = 0;
     this.catchTimes = [];
@@ -98,7 +111,8 @@ export class Game {
   }
 
   private spawnFly() {
-    this.fly = new Fly(this.rng, this.catchTimes.length);
+    const frogX = this.frog.pose("torso").x;
+    this.fly = new Fly(this.rng, this.catchTimes.length, { x: frogX, distance: this.level.flyMinDistance });
     this.emit({ type: "spawn" });
   }
 
@@ -106,6 +120,17 @@ export class Game {
     this.reset();
     this.phase = "playing";
     this.emit({ type: "start" });
+    this.publish();
+  }
+
+  /** Switches level between runs; the title screen then shows the new pond. */
+  setMode(mode: Mode) {
+    if (this.phase === "playing" || this.phase === "paused") return;
+    this.mode = mode;
+    this.level = LEVELS[mode];
+    this.best = this.storage.getBest(mode);
+    this.phase = "title";
+    this.reset();
     this.publish();
   }
 
@@ -164,6 +189,7 @@ export class Game {
       }
     }
     this.frog.control(playing ? this.keys : NO_KEYS, dt);
+    this.frog.applyWater();
     stepWorld(this.world);
 
     const mouth = this.frog.mouth();
@@ -175,6 +201,12 @@ export class Game {
 
     this.trackHops(dt);
     if (!playing) return;
+
+    if (this.frog.inWater()) {
+      this.emit({ type: "splash", x: this.frog.pose("torso").x });
+      this.gameOver("splash");
+      return;
+    }
 
     this.belly -= dt;
     if (this.belly <= 0) {
@@ -206,6 +238,7 @@ export class Game {
   }
 
   private trackHops(dt: number) {
+    if (this.frog.inWater()) return;
     const grounded = this.frog.isGrounded();
     const v = this.frog.torso.getLinearVelocity();
     if (!grounded) {
@@ -232,7 +265,7 @@ export class Game {
     if (this.score > this.best) {
       this.best = this.score;
       this.newBest = this.score > 0;
-      this.storage.setBest(this.best);
+      this.storage.setBest(this.mode, this.best);
     }
     this.emit({ type: "over", reason });
     this.publish();
@@ -245,6 +278,7 @@ export class Game {
     const flyAge = this.fly?.age ?? 0;
     this.snapshot = {
       phase: this.phase,
+      mode: this.mode,
       score: this.score,
       flies: this.catchTimes.length,
       flyAge,

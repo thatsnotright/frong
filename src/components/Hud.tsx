@@ -1,3 +1,4 @@
+import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
@@ -10,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { Bug, Pause, Play, RotateCcw, Trophy } from "lucide-react";
 import { SCORING } from "../game/config";
 import type { Snapshot } from "../game/game";
+import { LEVELS } from "../game/levels";
 
 interface HudProps {
   snap: Snapshot;
@@ -26,7 +28,12 @@ export function Hud({ snap, muted, onMutedChange, onPause, onRestart }: HudProps
     <>
       <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-2 p-2 sm:gap-3 sm:p-4">
         <Card className="pointer-events-auto min-w-24 gap-1 border-white/60 bg-card/85 px-3 py-2.5 shadow-lg backdrop-blur sm:min-w-32 sm:px-4 sm:py-3">
-          <div className="text-[11px] font-bold tracking-widest text-muted-foreground uppercase">Score</div>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] font-bold tracking-widest text-muted-foreground uppercase">Score</span>
+            <Badge variant="secondary" className="h-4 px-1.5 text-[10px]">
+              {LEVELS[snap.mode].name}
+            </Badge>
+          </div>
           <div className="font-display text-2xl leading-none tabular-nums sm:text-4xl">{snap.score.toLocaleString()}</div>
           <div className="mt-1 flex items-center gap-3 text-sm font-semibold">
             <span className="flex items-center gap-1" title="Flies eaten">

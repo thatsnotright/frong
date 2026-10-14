@@ -166,13 +166,21 @@ export class Sfx {
         this.hiss(0.16, 0.16, "bandpass", 500, 1600, 1.2);
         this.tone("triangle", 300, 420, 0.1, 0.06, 0.04);
         break;
+      case "splash":
+        this.hiss(0.45, 0.5, "lowpass", 3200, 300);
+        this.hiss(0.25, 0.25, "bandpass", 1800, 700, 1.5, 0.05);
+        // Bloop as it goes under.
+        this.tone("sine", 520, 130, 0.22, 0.3, 0.08);
+        break;
       case "start":
         this.croak(1.15);
         break;
-      case "over":
-        this.croak(e.reason === "starved" ? 0.8 : 1);
-        this.croak(e.reason === "starved" ? 0.7 : 0.9, 0.45);
+      case "over": {
+        const pitch = e.reason === "starved" ? 0.8 : e.reason === "splash" ? 0.9 : 1;
+        this.croak(pitch, e.reason === "splash" ? 0.35 : 0);
+        this.croak(pitch * 0.88, e.reason === "splash" ? 0.8 : 0.45);
         break;
+      }
     }
   }
 

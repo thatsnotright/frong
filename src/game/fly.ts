@@ -27,22 +27,39 @@ export class Fly {
   private readonly startle: number;
   private phase: number;
 
+  /**
+   * `catches` is how many flies the frog has eaten so far. With `avoid`, the fly drops in at least
+   * `distance` (horizontally) from `x`.
+   */
   constructor(
     private rng: Rng,
-    level: number,
+    catches: number,
+    avoid?: { x: number; distance: number },
   ) {
-    const span = ARENA.right - ARENA.left - MARGIN * 2;
-    this.x = ARENA.left + MARGIN + rng() * span;
+    this.x = Fly.spawnX(rng, avoid);
     this.y = ARENA.top + 0.9;
-    this.maxSpeed = Math.min(4.2, 1.7 + level * 0.14);
-    this.accel = Math.min(16, 6 + level * 0.5);
-    this.hoverMaxY = Math.min(ARENA.flyCeiling, 4.2 + level * 0.12);
-    this.startle = Math.min(2.2, 0.9 + level * 0.08);
+    this.maxSpeed = Math.min(4.2, 1.7 + catches * 0.14);
+    this.accel = Math.min(16, 6 + catches * 0.5);
+    this.hoverMaxY = Math.min(ARENA.flyCeiling, 4.2 + catches * 0.12);
+    this.startle = Math.min(2.2, 0.9 + catches * 0.08);
     this.phase = rng() * 100;
     this.tx = this.x + (rng() - 0.5) * 3;
     this.ty = HOVER_MIN_Y + rng() * (this.hoverMaxY - HOVER_MIN_Y);
     this.clampTarget();
     this.vy = -this.maxSpeed;
+  }
+
+  private static spawnX(rng: Rng, avoid?: { x: number; distance: number }) {
+    const lo = ARENA.left + MARGIN;
+    const hi = ARENA.right - MARGIN;
+    if (!avoid || avoid.distance <= 0) return lo + rng() * (hi - lo);
+    // Pick uniformly from whatever parts of the arena are far enough away.
+    const leftLen = Math.max(0, Math.min(hi, avoid.x - avoid.distance) - lo);
+    const rightStart = Math.max(lo, avoid.x + avoid.distance);
+    const rightLen = Math.max(0, hi - rightStart);
+    if (leftLen + rightLen === 0) return avoid.x < 0 ? hi : lo;
+    const r = rng() * (leftLen + rightLen);
+    return r < leftLen ? lo + r : rightStart + (r - leftLen);
   }
 
   private clampTarget() {

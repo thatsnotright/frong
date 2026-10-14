@@ -29,8 +29,8 @@ function Overlay({ frong }: { frong: Frong }) {
         <Hud snap={snap} muted={muted} onMutedChange={onMutedChange} onPause={togglePause} onRestart={frong.play} />
       )}
       {snap.phase === "playing" && <KeyPad keys={snap.keys} onKey={onKey} />}
-      {snap.phase === "title" && <TitleScreen best={snap.best} onPlay={frong.play} />}
-      {snap.phase === "over" && <GameOverScreen snap={snap} onPlay={frong.play} />}
+      {snap.phase === "title" && <TitleScreen snap={snap} onPlay={frong.play} onMode={frong.setMode} />}
+      {snap.phase === "over" && <GameOverScreen snap={snap} onPlay={frong.play} onModes={() => frong.setMode(snap.mode)} />}
       {snap.phase === "paused" && <PauseScreen onResume={togglePause} onRestart={frong.play} />}
     </>
   );

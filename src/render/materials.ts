@@ -147,3 +147,34 @@ export function feltMaterial(color = PALETTE.felt) {
     bumpScale: 1.2,
   });
 }
+
+/** Lily pad top: green with pale veins fanning out from the middle (cylinder cap UVs are radial). */
+export function lilyPadTexture() {
+  const tex = canvasTexture(256, (ctx, s) => {
+    const c = s / 2;
+    const g = ctx.createRadialGradient(c, c, 0, c, c, c);
+    g.addColorStop(0, "#6cbf45");
+    g.addColorStop(0.85, "#4c9a35");
+    g.addColorStop(1, "#3a7d2a");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, s, s);
+    ctx.strokeStyle = "rgba(200,240,150,0.45)";
+    for (let i = 0; i < 22; i++) {
+      const a = (i / 22) * Math.PI * 2;
+      ctx.lineWidth = 1.2 + Math.random();
+      ctx.beginPath();
+      ctx.moveTo(c, c);
+      const bend = (Math.random() - 0.5) * 0.15;
+      ctx.quadraticCurveTo(c + Math.cos(a + bend) * c * 0.5, c + Math.sin(a + bend) * c * 0.5, c + Math.cos(a) * c * 0.97, c + Math.sin(a) * c * 0.97);
+      ctx.stroke();
+    }
+    for (let i = 0; i < 300; i++) {
+      ctx.fillStyle = `rgba(30,70,20,${Math.random() * 0.18})`;
+      ctx.beginPath();
+      ctx.arc(Math.random() * s, Math.random() * s, 1 + Math.random() * 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  });
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}

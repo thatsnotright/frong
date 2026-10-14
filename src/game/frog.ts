@@ -1,5 +1,5 @@
 import { AABB, Circle, Polygon, RevoluteJoint, Vec2, type Body, type World } from "planck";
-import { ARENA, DEG, TONGUE, TURN_SECONDS } from "./config";
+import { ARENA, DEG, GRAVITY, POND, TONGUE, TURN_SECONDS } from "./config";
 
 export type LegKeys = { q: boolean; w: boolean; o: boolean; p: boolean };
 
@@ -368,6 +368,22 @@ export class Frog {
       }
     }
     return [lo, hi];
+  }
+
+  /** The head has gone under the waterline: only possible over a pond. */
+  inWater() {
+    return this.torso.getPosition().y < ARENA.ground;
+  }
+
+  /** Water holds up and slows whatever part of the frog is under the surface. */
+  applyWater() {
+    for (const b of this.bodies) {
+      if (b.getPosition().y >= ARENA.ground) continue;
+      const m = b.getMass();
+      const v = b.getLinearVelocity();
+      b.applyForceToCenter(new Vec2(-v.x * m * POND.drag, -GRAVITY * m * POND.buoyancy - v.y * m * POND.drag));
+      b.applyTorque(-b.getAngularVelocity() * b.getInertia() * POND.drag);
+    }
   }
 
   /** True when the frog is upside down and resting on something. */

@@ -97,6 +97,44 @@ describe("turning", () => {
   });
 });
 
+describe("modes", () => {
+  test("the frog starts on a lily pad in Hard, and flies keep their distance", () => {
+    const game = new Game(seeded(10), undefined, "hard");
+    for (let i = 0; i < 50; i++) {
+      game.start();
+      expect(Math.abs(game.fly!.x - game.frog.pose("torso").x)).toBeGreaterThanOrEqual(game.level.flyMinDistance);
+    }
+    run(game, 3);
+    expect(game.phase).toBe("playing");
+  });
+
+  test("falling in the pond ends the run", () => {
+    const game = new Game(seeded(11), undefined, "medium");
+    game.start();
+    run(game, 1);
+    // A full leap from the start falls short of the far bank.
+    game.setKey("w", true);
+    game.setKey("p", true);
+    run(game, 0.25);
+    game.releaseAll();
+    run(game, 2);
+    expect(game.phase).toBe("over");
+    expect(game.overReason).toBe("splash");
+  });
+
+  test("switching modes rebuilds the level and loads that mode's best", () => {
+    const game = new Game(seeded(12), { getBest: (m) => (m === "hard" ? 900 : 0), setBest: () => {} });
+    expect(game.best).toBe(0);
+    game.setMode("hard");
+    expect(game.level.mode).toBe("hard");
+    expect(game.best).toBe(900);
+    expect(game.phase).toBe("title");
+    game.start();
+    game.setMode("easy");
+    expect(game.mode).toBe("hard");
+  });
+});
+
 describe("tongue", () => {
   test("catches a fly in its sights and scores it", () => {
     const game = new Game(seeded(4));
@@ -165,7 +203,7 @@ describe("rules", () => {
 
   test("best score is persisted on game over", () => {
     let saved = 0;
-    const game = new Game(seeded(7), { getBest: () => 100, setBest: (n) => (saved = n) });
+    const game = new Game(seeded(7), { getBest: () => 100, setBest: (_mode, n) => (saved = n) });
     game.start();
     game.score = 500;
     run(game, BELLY_SECONDS + 1);

@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { ARENA, TONGUE } from "../game/config";
 import type { Game, GameEvent } from "../game/game";
+import type { Level } from "../game/levels";
 import { Tongue } from "../game/tongue";
 import { Environment, SKY_HORIZON, SUN_DIR } from "./environment";
 import { FlyModel } from "./flyModel";
@@ -39,6 +40,7 @@ export class GameView {
   private particles: Particle[] = [];
   private points: THREE.Points;
   private shake = 0;
+  private shownLevel: Level | null = null;
   private camBase = new THREE.Vector3();
   private camTarget = new THREE.Vector3();
   private popups: HTMLDivElement;
@@ -172,10 +174,17 @@ export class GameView {
         break;
       case "land": {
         const f = g.frog.pose("foot");
-        this.burst(f.x + 0.2 * g.frog.facing, 0.05, Math.round(6 + e.impact * 14), ["#cdb48a", "#b89c6e", "#e8dcc0"], 1.6 + e.impact * 2, 0.6, 0.22, 2);
+        const x = f.x + 0.2 * g.frog.facing;
+        const onPad = g.level.land.some((l) => l.kind === "pad" && x > l.x0 - 0.3 && x < l.x1 + 0.3);
+        const colors = onPad ? ["#bfe6ff", "#ffffff", "#8fd16a"] : ["#cdb48a", "#b89c6e", "#e8dcc0"];
+        this.burst(x, 0.05, Math.round(6 + e.impact * 14), colors, 1.6 + e.impact * 2, 0.6, 0.22, 2);
         this.shake = Math.max(this.shake, e.impact * 0.12);
         break;
       }
+      case "splash":
+        this.burst(e.x, 0.02, 40, ["#d8f1ff", "#ffffff", "#7cc4ee", "#a8dcff"], 5, 0.9, 0.2);
+        this.shake = Math.max(this.shake, 0.15);
+        break;
       case "over":
         this.shake = 0.2;
         break;
@@ -223,6 +232,10 @@ export class GameView {
   render(dt: number) {
     const g = this.game;
     const t = g.time;
+    if (this.shownLevel !== g.level) {
+      this.env.setLevel(g.level);
+      this.shownLevel = g.level;
+    }
     this.env.update(t, dt);
 
     const fly = g.fly;
