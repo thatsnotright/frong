@@ -7,6 +7,7 @@
     "dev": "bun --hot src/index.ts",
     "start": "NODE_ENV=production bun src/index.ts",
     "build": "bun run build.ts",
+    "publish:pages": "bun run build.ts --outdir ../thatsnotright.github.io/frong --no-sourcemap",
     "test": "bun test",
     "typecheck": "tsc --noEmit"
   },

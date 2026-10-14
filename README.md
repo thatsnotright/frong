@@ -53,12 +53,19 @@ Falling in the water ends the run. Each mode keeps its own best score.
 ```bash
 bun dev            # dev server with HMR
 bun run build      # static build into dist/
+bun run publish:pages  # build into ../thatsnotright.github.io/frong (no source maps)
 bun start          # serve in production mode
 bun test           # physics + rules tests (headless, no browser)
 bun run typecheck
 ```
 
 Add `?debug` to the URL to expose the running game as `window.frong` in the console.
+
+## Publishing
+
+Frong is published at <https://thatsnotright.github.io/frong/> from the
+[thatsnotright.github.io](https://github.com/thatsnotright/thatsnotright.github.io) repo, checked
+out next to this one. Run `bun run publish:pages`, then commit and push `frong/` in that repo.
 
 ## Layout
 
