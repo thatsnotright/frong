@@ -1,0 +1,60 @@
+# Rebuilds Frong on every push to main and commits the build into
+# thatsnotright.github.io/frong, which GitHub Pages then redeploys.
+#
+# Needs a PAGES_DEPLOY_KEY secret here: the private half of a deploy key that has
+# write access to thatsnotright/thatsnotright.github.io (see README).
+name: Publish to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# One publish at a time, in push order, so an older build never lands on top of a newer one.
+concurrency:
+  group: publish-pages
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      # Check both repos out side by side, the same layout publish:pages expects locally.
+      - uses: actions/checkout@v5
+        with:
+          path: frong
+      - uses: actions/checkout@v5
+        with:
+          repository: thatsnotright/thatsnotright.github.io
+          ssh-key: ${{ secrets.PAGES_DEPLOY_KEY }}
+          path: thatsnotright.github.io
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install
+        working-directory: frong
+        run: bun install --frozen-lockfile
+
+      - name: Test
+        working-directory: frong
+        run: |
+          bun run typecheck
+          bun test
+
+      - name: Build
+        working-directory: frong
+        run: bun run publish:pages
+
+      - name: Commit and push
+        working-directory: thatsnotright.github.io
+        run: |
+          git add -A frong
+          if git diff --cached --quiet; then
+            echo "Build is unchanged; nothing to publish."
+            exit 0
+          fi
+          git config user.name "Rob Elsner[bot]"
+          git config user.email "rob@elsner.dev"
+          git commit -m "Publish Frong ${GITHUB_SHA::7}" \
+            -m "Built from ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}"
+          git push

@@ -1,4 +1,10 @@
+import type { Fly } from "./fly";
 import type { Game, GameEvent } from "./game";
+
+/** Seconds for the buzz to swell in from silence, and again to fade back out. */
+const BUZZ_SWELL = 2;
+/** Gap between the frog's idle ribbits, in seconds of play. */
+const RIBBIT_GAP = { min: 5, max: 12 };
 
 /** Tiny Web Audio synth: every sound is generated, no assets. */
 export class Sfx {
@@ -8,6 +14,10 @@ export class Sfx {
   private buzzGain: GainNode | null = null;
   private buzzPan: StereoPannerNode | null = null;
   private buzzOsc: OscillatorNode[] = [];
+  private buzzFly: Fly | null = null;
+  private buzzStart = 0;
+  private ribbitIn = 0;
+  private lastUpdate = 0;
   muted: boolean;
 
   constructor(muted: boolean) {
@@ -75,7 +85,7 @@ export class Sfx {
     src.stop(t + dur + 0.05);
   }
 
-  private croak(pitch = 1, delay = 0) {
+  private croak(pitch = 1, delay = 0, peak = 0.5) {
     const ctx = this.ctx!;
     for (const [i, len] of [0.13, 0.1].entries()) {
       const t = ctx.currentTime + delay + i * 0.17;
@@ -97,7 +107,7 @@ export class Sfx {
       bp.frequency.value = 650 + i * 250;
       bp.Q.value = 2.5;
       const g = ctx.createGain();
-      this.env(g, t, 0.5, 0.015, len);
+      this.env(g, t, peak, 0.015, len);
       osc.connect(am).connect(bp).connect(g).connect(this.master);
       osc.start(t);
       lfo.start(t);
@@ -174,6 +184,7 @@ export class Sfx {
         break;
       case "start":
         this.croak(1.15);
+        this.scheduleRibbit();
         break;
       case "over": {
         const pitch = e.reason === "starved" ? 0.8 : e.reason === "splash" ? 0.9 : 1;
@@ -184,17 +195,41 @@ export class Sfx {
     }
   }
 
-  /** Keep the fly's buzz panned to its position and louder when close to the frog. */
+  private scheduleRibbit() {
+    this.ribbitIn = RIBBIT_GAP.min + Math.random() * (RIBBIT_GAP.max - RIBBIT_GAP.min);
+  }
+
+  /**
+   * Keep the fly's buzz panned to its position and louder when close to the frog, swelling in
+   * and out so it isn't a constant drone. Also lets the frog ribbit now and then during play.
+   */
   update(game: Game) {
     if (!this.ctx || !this.buzzGain || !this.buzzPan) return;
     const fly = game.fly;
     const t = this.ctx.currentTime;
+    const dt = t - this.lastUpdate;
+    this.lastUpdate = t;
+
+    if (game.phase === "playing") {
+      this.ribbitIn -= dt;
+      if (this.ribbitIn <= 0) {
+        this.croak(0.9 + Math.random() * 0.3, 0, 0.3);
+        this.scheduleRibbit();
+      }
+    }
+
+    // Each new fly starts its swell from silence.
+    if (fly !== this.buzzFly) {
+      this.buzzFly = fly;
+      this.buzzStart = t;
+    }
     let vol = 0;
     if (fly && game.phase !== "paused" && fly.state !== "caught") {
       const m = game.frog.mouth();
       const d = Math.hypot(fly.x - m.x, fly.y - m.y);
       vol = 0.025 + 0.09 / (1 + d * 0.6);
       if (game.phase !== "playing") vol *= 0.4;
+      vol *= 0.5 - 0.5 * Math.cos((Math.PI * (t - this.buzzStart)) / BUZZ_SWELL);
     }
     this.buzzGain.gain.setTargetAtTime(vol, t, 0.05);
     if (fly) this.buzzPan.pan.setTargetAtTime(Math.max(-1, Math.min(1, fly.x / 9)), t, 0.05);
